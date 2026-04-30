@@ -1,0 +1,143 @@
+# prediction-commodity-distribution
+
+Pure-numpy CDF math for prediction-market touch curves. Powers the cone chart at [goldprice.dev](https://goldprice.dev) and (eventually) every commodity vertical on the [Tidore](https://tidore.co) umbrella.
+
+This library is what runs in production. There is no internal fork.
+
+## What it does
+
+Given a list of prediction-market touch points — e.g. Polymarket / Kalshi questions like "Will gold touch $5,000 before Dec 31?" with associated `yes_price` + liquidity — this library produces a smooth monotone CDF and inverts it to extract percentile bands (p10/p25/p50/p75/p90).
+
+The math:
+
+1. **Pool-Adjacent-Violators (PAV) isotonic regression** — enforces monotonicity on noisy market-implied probabilities. Weighted variant pools toward high-conviction (high `yes_price × liquidity`) strikes.
+2. **Fritsch-Butland 1984 harmonic-mean Hermite cubic** — smooths the isotonic step function into a continuously-differentiable curve. Same slope choice as `scipy.interpolate.PchipInterpolator`.
+3. **Fritsch-Carlson 1980 α²+β²≤9 limiter** — guarantees the final cubic stays monotone regardless of slope-choice strategy.
+4. **Linear-tail extrapolation + cubic-bisection inversion** — finds strikes at target probability levels, flagging which are inside the observed range vs extrapolated.
+
+Output is numerically reproducible against `scipy.PchipInterpolator` for any quant who wants to verify the cone against a reference.
+
+## Install
+
+```bash
+pip install prediction-commodity-distribution
+```
+
+## Usage
+
+```python
+import numpy as np
+from prediction_commodity_distribution import (
+    pool_adjacent_violators,
+    weighted_pool_adjacent_violators,
+    fritsch_carlson_slopes,
+    hermite_eval,
+    invert_percentile,
+    invert_decreasing,
+    dedup_average,
+)
+
+# 1. Start with raw market touch points: list of (strike, yes_price)
+raw = [
+    (4500.0, 0.85),
+    (4750.0, 0.65),
+    (5000.0, 0.45),
+    (5250.0, 0.30),
+    (5500.0, 0.18),
+]
+
+# 2. Average any same-strike collisions, then enforce monotonicity.
+points = pool_adjacent_violators(dedup_average(raw))
+
+# 3. Build the smooth Hermite cubic.
+xs = np.array([x for x, _ in points])
+ys = np.array([y for _, y in points])
+slopes = fritsch_carlson_slopes(xs, ys)
+
+# 4. Evaluate the curve at any strike inside the observed range.
+prob_at_4900 = hermite_eval(xs, ys, slopes, 4900.0)
+
+# 5. Invert to find strikes at target probability levels.
+#    invert_percentile  → for monotone-increasing CDF (settlement-style)
+#    invert_decreasing  → for monotone-decreasing touch probability
+strike_p25, was_extrapolated = invert_decreasing(xs, ys, slopes, 0.25)
+```
+
+For weighted-PAV (conviction-weighted, where strikes with more capital pull harder during pooling):
+
+```python
+weighted_points = [
+    (4500.0, 0.85, 12_000.0),  # (strike, yes_price, conviction_weight)
+    (4750.0, 0.65, 25_000.0),
+    (5000.0, 0.45, 8_000.0),
+]
+pooled = weighted_pool_adjacent_violators(weighted_points)
+```
+
+## Public API
+
+| Function | Module | Purpose |
+|---|---|---|
+| `pool_adjacent_violators(points)` | `isotonic` | Enforce non-decreasing y on (x, y) tuples |
+| `weighted_pool_adjacent_violators(points)` | `isotonic` | Enforce decreasing-monotone on (x, y, w); high-w dominates pooling |
+| `fritsch_carlson_slopes(xs, ys)` | `hermite` | Hermite tangent slopes (Fritsch-Butland 1984 harmonic mean + F-C 1980 α²+β²≤9 limiter) |
+| `hermite_eval(xs, ys, slopes, x)` | `hermite` | Evaluate cubic at x (caller pre-brackets) |
+| `invert_percentile(xs, ys, slopes, target)` | `invert` | Find x for f(x) = target on monotone-increasing curve |
+| `invert_decreasing(xs, ys, slopes, target)` | `invert` | Same on monotone-decreasing curve |
+| `dedup_average(points)` | `dedup` | Collapse same-x collisions via average(y) |
+
+All accept Python list / numpy array inputs as documented in each module's docstring. Output is `(x, y)` tuples or numpy arrays depending on the function.
+
+## Math attribution
+
+- **Pool-Adjacent-Violators**: Brunk 1955; Ayer et al. 1955. Canonical O(n) isotonic regression.
+- **Fritsch-Carlson 1980** (SIAM J. Numer. Anal. 17(2):238-246): the framework — slope-choice + α²+β²≤9 limiter ⇒ monotone interpolant.
+- **Fritsch-Butland 1984**: harmonic-mean slope choice. The canonical PCHIP variant.
+- **scipy parity**: this library produces output numerically equivalent to `scipy.interpolate.PchipInterpolator` on the same input.
+
+We chose Fritsch-Butland's harmonic mean over an arithmetic-mean variant because (a) it matches scipy, removing "why does our cone differ from PCHIP?" friction with quant readers, and (b) it produces more conservative interior slopes (less overshoot risk on steep transitions).
+
+## Where this is used
+
+- **goldprice.dev** — the cone chart hero on `/data/gold` and the `/v1/prediction-market-view` endpoint.
+- **Tidore (umbrella, in progress)** — same library will power silverprice.dev / copperprice.dev / oilprice.dev / etc as those verticals ship. First commodity (gold) paid the math cost; subsequent ones inherit it for free.
+
+## Scope discipline
+
+This library is intentionally narrow. It contains:
+
+- ✅ Pure-functional CDF math operating on abstract tuples
+- ✅ No I/O, no DB, no network calls
+- ✅ Single dependency: `numpy`
+
+It does NOT contain:
+
+- ❌ Polymarket / Kalshi specific scrapers (those live in production code)
+- ❌ Database schemas or ORM models
+- ❌ Pricing data sources or spot-price fetchers
+- ❌ HTTP clients, REST handlers, or routing
+- ❌ Confidence labelling business logic
+
+If you need any of the above, look at the integration code in [goldprice-dev](https://github.com/michaelmustopo/goldprice-dev) or build your own data layer around this math.
+
+## Development
+
+```bash
+git clone https://github.com/michaelmustopo/prediction-commodity-distribution.git
+cd prediction-commodity-distribution
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+ruff check .
+pyright
+```
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+## Contributing
+
+Issues + PRs welcome. Scope is bounded (math only — see "Scope discipline" above); contributions that add integrations or non-math features will be politely declined to keep maintenance overhead bounded.
+
+For substantive math additions or alternative slope-choice strategies (Akima 1970, Steffen 1990, etc), open an issue first to discuss before sending a PR.
