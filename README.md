@@ -11,11 +11,11 @@ Given a list of prediction-market touch points — e.g. Polymarket / Kalshi ques
 The math:
 
 1. **Pool-Adjacent-Violators (PAV) isotonic regression** — enforces monotonicity on noisy market-implied probabilities. Weighted variant pools toward high-conviction (high `yes_price × liquidity`) strikes.
-2. **Fritsch-Butland 1984 harmonic-mean Hermite cubic** — smooths the isotonic step function into a continuously-differentiable curve. Same slope choice as `scipy.interpolate.PchipInterpolator`.
-3. **Fritsch-Carlson 1980 α²+β²≤9 limiter** — guarantees the final cubic stays monotone regardless of slope-choice strategy.
+2. **Fritsch-Butland 1984 weighted-harmonic-mean Hermite cubic** — `scipy.PchipInterpolator`'s exact algorithm. Smooths the isotonic step function into a continuously-differentiable curve.
+3. **Cleve Moler 3-point endpoint formula** with Fritsch-Carlson 1980 §4 sign + shape correction — handles the boundary slopes scipy uses.
 4. **Linear-tail extrapolation + cubic-bisection inversion** — finds strikes at target probability levels, flagging which are inside the observed range vs extrapolated.
 
-Output is numerically reproducible against `scipy.PchipInterpolator` for any quant who wants to verify the cone against a reference.
+Output is **byte-equivalent** to `scipy.interpolate.PchipInterpolator` for any quant who wants to verify the cone against a reference. Locked by [`tests/test_scipy_parity.py`](tests/test_scipy_parity.py) — interior slopes, endpoint slopes, and curve evaluation all match within `1e-12` on uniform spacing, non-uniform spacing, and realistic gold-CDF input.
 
 ## Install
 
@@ -80,7 +80,7 @@ pooled = weighted_pool_adjacent_violators(weighted_points)
 |---|---|---|
 | `pool_adjacent_violators(points)` | `isotonic` | Enforce non-decreasing y on (x, y) tuples |
 | `weighted_pool_adjacent_violators(points)` | `isotonic` | Enforce decreasing-monotone on (x, y, w); high-w dominates pooling |
-| `fritsch_carlson_slopes(xs, ys)` | `hermite` | Hermite tangent slopes (Fritsch-Butland 1984 harmonic mean + F-C 1980 α²+β²≤9 limiter) |
+| `fritsch_carlson_slopes(xs, ys)` | `hermite` | Hermite tangent slopes — scipy.PchipInterpolator's exact algorithm (Fritsch-Butland 1984 weighted harmonic mean + Cleve Moler 3-point endpoints with sign/shape correction) |
 | `hermite_eval(xs, ys, slopes, x)` | `hermite` | Evaluate cubic at x (caller pre-brackets) |
 | `invert_percentile(xs, ys, slopes, target)` | `invert` | Find x for f(x) = target on monotone-increasing curve |
 | `invert_decreasing(xs, ys, slopes, target)` | `invert` | Same on monotone-decreasing curve |
@@ -91,11 +91,12 @@ All accept Python list / numpy array inputs as documented in each module's docst
 ## Math attribution
 
 - **Pool-Adjacent-Violators**: Brunk 1955; Ayer et al. 1955. Canonical O(n) isotonic regression.
-- **Fritsch-Carlson 1980** (SIAM J. Numer. Anal. 17(2):238-246): the framework — slope-choice + α²+β²≤9 limiter ⇒ monotone interpolant.
-- **Fritsch-Butland 1984**: harmonic-mean slope choice. The canonical PCHIP variant.
-- **scipy parity**: this library produces output numerically equivalent to `scipy.interpolate.PchipInterpolator` on the same input.
+- **Fritsch-Carlson 1980** (SIAM J. Numer. Anal. 17(2):238-246): the broader monotone-Hermite framework PCHIP fits under, and the source of the §4 sign + shape correction applied to endpoint slopes.
+- **Fritsch-Butland 1984**: weighted harmonic-mean slope choice for interior knots. The canonical PCHIP variant scipy adopted.
+- **Cleve Moler** (*Numerical Computing with MATLAB* §3.6, `pchiptx.m`): one-sided 3-point endpoint formula scipy uses.
+- **scipy parity**: this library produces output **byte-equivalent** to `scipy.interpolate.PchipInterpolator` on the same input. Locked by `tests/test_scipy_parity.py`.
 
-We chose Fritsch-Butland's harmonic mean over an arithmetic-mean variant because (a) it matches scipy, removing "why does our cone differ from PCHIP?" friction with quant readers, and (b) it produces more conservative interior slopes (less overshoot risk on steep transitions).
+We follow scipy's exact algorithm (weighted harmonic mean for interior + 3-point endpoints) rather than a simpler arithmetic mean or linear-secant fallback because (a) it removes "why does our cone differ from PCHIP?" friction with quant readers, and (b) the weighted variant produces more conservative slopes on non-uniform knot spacing (less overshoot risk on steep CDF transitions).
 
 ## Where this is used
 

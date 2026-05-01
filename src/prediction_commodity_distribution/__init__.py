@@ -7,10 +7,12 @@ operates on abstract `(x, y, weight)` tuples — no schema coupling, no
 DB, no I/O.
 
 **Math attribution**: Pool-Adjacent-Violators (PAV) isotonic regression
-+ Fritsch-Butland 1984 harmonic-mean Hermite cubic + Fritsch-Carlson
-1980 α²+β²≤9 monotone limiter + linear tail extrapolation. Cone output
-is numerically reproducible against `scipy.interpolate.PchipInterpolator`
-for any quant verifier.
++ Fritsch-Butland 1984 weighted-harmonic-mean Hermite cubic
+(scipy.PchipInterpolator's exact algorithm) + Cleve Moler 3-point
+endpoint formula (Fritsch-Carlson 1980 §4 shape correction) + linear
+tail extrapolation. Output is byte-equivalent to
+`scipy.interpolate.PchipInterpolator` for any quant verifier — locked
+by `tests/test_scipy_parity.py`.
 
 **License**: Apache 2.0.
 
@@ -41,7 +43,7 @@ from .hermite import fritsch_carlson_slopes, hermite_eval
 from .invert import invert_decreasing, invert_percentile
 from .isotonic import pool_adjacent_violators, weighted_pool_adjacent_violators
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "dedup_average",

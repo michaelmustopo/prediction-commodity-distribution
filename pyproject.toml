@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prediction-commodity-distribution"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pure-numpy CDF math for prediction-market touch curves: PAV isotonic + Fritsch-Butland Hermite cubic + percentile inversion"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -51,6 +51,7 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.5",
   "pyright>=1.1.380",
+  "scipy>=1.10",
 ]
 
 [tool.hatch.build.targets.wheel]

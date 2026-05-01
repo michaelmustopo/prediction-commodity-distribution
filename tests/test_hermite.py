@@ -21,29 +21,37 @@ def test_hermite_monotone_within_observed_range() -> None:
     assert all(evaluated[i] <= evaluated[i + 1] + 1e-9 for i in range(len(evaluated) - 1))
 
 
-def test_fritsch_carlson_slopes_uses_harmonic_mean() -> None:
-    """Pin the Fritsch-Butland 1984 harmonic-mean interior-slope formula.
-
-    An arithmetic-mean variant `(d[i-1] + d[i]) / 2` is monotone-preserving
-    via the limiter but diverges ~5-15% from `scipy.PchipInterpolator` on
-    realistic data. The corrected formula `2 * d[i-1] * d[i] / (d[i-1] + d[i])`
-    is the canonical PCHIP slope choice + matches scipy.
+def test_fritsch_carlson_slopes_uses_weighted_harmonic_mean() -> None:
+    """Pin the Fritsch-Butland 1984 weighted-harmonic-mean interior formula
+    + Cleve Moler 3-point endpoints.
 
     Reference example: xs=[0,1,2], ys=[1,3,4].
       d[0] = (3-1)/1 = 2
       d[1] = (4-3)/1 = 1
-      Same sign + α²+β² = (1.333/1)² + (1/1)² = 2.78 < 9 → no limiter.
-      Harmonic mean: 2*2*1/(2+1) = 4/3 ≈ 1.333
-      Arithmetic mean: (2+1)/2 = 1.5  — would FAIL this test.
+
+    Interior (uniform spacing collapses weighted → simple harmonic):
+      slopes[1] = 2*d[0]*d[1] / (d[0]+d[1]) = 4/3 ≈ 1.333
+
+    Left endpoint (Cleve Moler 3-point):
+      d = ((2*h0 + h1)*m0 - h0*m1) / (h0 + h1)
+        = ((2 + 1)*2 - 1*1) / 2 = 5/2 = 2.5
+      sign(d) == sign(m0), same-sign secants → no correction.
+
+    Right endpoint (mirror, h0=h[-1]=1, h1=h[-2]=1, m0=m[-1]=1, m1=m[-2]=2):
+      d = ((2 + 1)*1 - 1*2) / 2 = 1/2 = 0.5
+      sign(d) == sign(m0), same-sign secants → no correction.
+
+    An arithmetic-mean interior `(d[i-1] + d[i]) / 2` would yield 1.5
+    instead of 4/3 — diverges ~12% from scipy on this input.
     """
     xs = np.array([0.0, 1.0, 2.0])
     ys = np.array([1.0, 3.0, 4.0])
     slopes = fritsch_carlson_slopes(xs, ys)
 
-    # Edge slopes = one-sided secants.
-    assert slopes[0] == pytest.approx(2.0, abs=1e-12)
-    assert slopes[2] == pytest.approx(1.0, abs=1e-12)
-    # Interior slope = harmonic mean of d[0]=2 and d[1]=1 → 4/3.
+    # Endpoints — Cleve Moler 3-point one-sided estimate.
+    assert slopes[0] == pytest.approx(2.5, abs=1e-12)
+    assert slopes[2] == pytest.approx(0.5, abs=1e-12)
+    # Interior — weighted harmonic mean (uniform spacing → simple harmonic).
     assert slopes[1] == pytest.approx(4.0 / 3.0, abs=1e-12)
     assert slopes[1] != pytest.approx(1.5, abs=1e-6)
 
