@@ -1,8 +1,10 @@
 # prediction-commodity-distribution
 
-Pure-numpy CDF math for prediction-market touch curves. Powers the cone chart at [goldprice.dev](https://goldprice.dev) and (eventually) every commodity vertical on the [Tidore](https://tidore.co) umbrella.
+Pure-numpy CDF math for prediction-market touch curves. Powers the legacy single-expiry cone endpoint (`/v1/prediction-market-view`) at [goldprice.dev](https://goldprice.dev) and (eventually) every commodity vertical on the [Tidore](https://tidore.co) umbrella.
 
 This library is what runs in production. There is no internal fork.
+
+> **Scope note (2026-05-04).** The multi-horizon cone at goldprice.dev/data/gold uses an extended direction-aware variant (above / below / upside-touch markets, not just touch) in the goldprice.dev product layer. That variant is a private product feature; this library remains the touch-only conviction-CDF math primitive. A future v0.2 may consolidate the direction-aware mapping back into this library — track [issues](https://github.com/michaelmustopo/prediction-commodity-distribution/issues) for status.
 
 ## What it does
 
